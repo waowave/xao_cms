@@ -14,3 +14,4 @@ support:
 [x] pass GET reqest params to template env  
   
 now - production ready, but if next releases some functions / libraries can be changed.  
+docs coming soon...  
