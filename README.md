@@ -11,7 +11,7 @@ support:
 [x] markdown using goldmark. with tables and emoji.  
 [x] bluemonday sanitize function  
 [x] sprig v3 functions  
-[x] pass GET reqest params to template env  
+[x] pass GET reqest params to template env and fetch request params  
   
 now - production ready, but if next releases some functions / libraries can be changed.  
 docs coming soon...  
