@@ -1,0 +1,40 @@
+
+{{define "header"}}
+<!doctype html>
+<html>
+<head>
+  <!-- karkade -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com" ></script> 
+  <title>{{.env.head.title}} - {{.env.env_for_tpl}}</title>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            clifford: '#da373d',
+          }
+        }
+      }
+    }
+  </script>
+
+</head>
+HEAD
+<body >
+    
+{{end}}
+
+
+{{define "footer"}}
+</body>
+<footer class="bg-gray-800 ">
+FOOTER
+</footer>
+
+  
+</body>
+</html>
+
+{{end}}

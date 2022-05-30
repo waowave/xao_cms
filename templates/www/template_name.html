@@ -1,0 +1,9 @@
+{{template "header" .}}
+
+<section class="bg-white dark:bg-gray-800">
+    {{range .fe.test_fetch}}
+        <a  target="_blank" href="/todo/{{.id}}"> {{.title}} ( {{if .completed}}completed{{else}}not completed{{end}} ) </a><br />
+    {{end}}
+</section>
+
+{{template "footer" .}}

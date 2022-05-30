@@ -1,0 +1,44 @@
+routers:
+    "/":
+      template: template_name.html
+      fetch:
+        - test_fetch
+      env:
+        env_for_tpl: Main
+    "/todo/:id":
+      template: view_todo.html
+      fetch:
+        - view_todo_fetch
+      env:
+        env_for_tpl: View todo
+
+fetch_headers:
+  test_header_for_fetch:
+    content-type: application/json
+
+fetches:
+  test_fetch:
+    url: https://{{.env.base.url_for_fetch}}/todos/
+    method: GET
+#important: true means show 500 error if fetch fail
+    important: True
+#fetch_always: true means fetch this ALWAYS. regardless of whether it is in fetch or not
+    fetch_always: False
+    headers:
+      - test_header_for_fetch
+
+  view_todo_fetch:
+    url: https://{{.env.base.url_for_fetch}}/todos/{{.params.id}}
+    method: GET
+    important: True
+
+
+env:
+  head:
+    title: Title for page
+  base:
+    url_for_fetch: jsonplaceholder.typicode.com
+
+
+static:
+  "/static": ./static
