@@ -70,14 +70,6 @@ type FetchesRow struct {
 	FetchHeadersTemplate *template.Template
 }
 
-/*
-type MarkdownRow struct {
-	Template       string   `yaml:"template"`
-	TagsInTemplate []string `yaml:"tagsintemplate"`
-	Markdown       goldmark.Markdown
-}
-*/
-
 type yamlRouterStruct struct {
 	Routers map[string]struct {
 		Template string                 `yaml:"template"`
@@ -85,13 +77,10 @@ type yamlRouterStruct struct {
 		Env      map[string]interface{} //looks as .local in template
 	} `yaml:"routers"`
 	Fetches      map[string]FetchesRow        `yaml:"fetches"`
-	FetchHeaders map[string]map[string]string `yaml:"fetch_headers"` //fetch_name: - arr
-	//	Markdown     map[string]MarkdownRow       `yaml:"markdowns"`
-	Env         map[interface{}]interface{} `yaml:"env"`
-	StaticPaths map[string]string           `yaml:"static"`
+	FetchHeaders map[string]map[string]string `yaml:"fetch_headers"`
+	Env          map[interface{}]interface{}  `yaml:"env"`
+	StaticPaths  map[string]string            `yaml:"static"`
 }
-
-/*        "url":"http://192.168.1.194:8055/items/buildings", */
 
 func fetchTemplateForString(val string) *template.Template {
 	t, err := template.New("").Funcs(sprig.FuncMap()).Parse(val)
@@ -102,20 +91,16 @@ func fetchTemplateForString(val string) *template.Template {
 	return t
 }
 
-//var markdown goldmark.Markdown
 var bluemonday_policy *bluemonday.Policy
 
 func func_sanitize(source string) template.HTML {
 	return template.HTML(template.HTML(bluemonday_policy.Sanitize(source)))
 }
 
-func func_markdown( /* tplname string, */ source string) template.HTML {
+func func_markdown(source string) template.HTML {
 	var buf bytes.Buffer
-	//	fmt.Printf("XX=%v\n", tplname)
-	//	fmt.Printf("AA=%v\n", yaml_router.Markdown[tplname])
-	//	fmt.Printf("CC=%v\n", yaml_router.Markdown[tplname].Markdown)
 
-	if err := markdown_glob.Convert([]byte(source), &buf); /* yaml_router.Markdown[tplname].Markdown.Convert([]byte(source), &buf)*/ err != nil {
+	if err := markdown_glob.Convert([]byte(source), &buf); err != nil {
 		panic(err)
 	}
 	return template.HTML(buf.String())
@@ -145,7 +130,7 @@ func func_str2url(in string) template.URL {
 	return template.URL(in)
 }
 
-var fetch_cache = make(map[string]interface{} /* map[string]interface{} */)
+var fetch_cache = make(map[string]interface{})
 var fetch_cache_mutex = sync.RWMutex{}
 
 func executeTemplateForFetch(
@@ -163,7 +148,6 @@ func executeTemplateForFetch(
 	if err != nil {
 		fmt.Printf("err=%v\n", err)
 		return request_writer, err
-		//						panic(err)
 	}
 	return request_writer, nil
 
@@ -176,8 +160,6 @@ func fetchByName(c *gin.Context, fetch_name string) (interface{}, error) {
 	}
 
 	var fetch_html_object interface{}
-	//:= make(interface{})
-	// make(map[string]interface{})
 
 	var fetch_http_resp *http.Response
 	var err error = nil
@@ -215,11 +197,6 @@ func fetchByName(c *gin.Context, fetch_name string) (interface{}, error) {
 		if fetch_method == "" {
 			fetch_method = "GET"
 		}
-
-		//if v, ok := fetch_cache[get_url_str]; ok {
-		//	return v, nil
-		//} else {
-
 		var body_io_reader *bytes.Buffer = nil
 
 		if fetch_obj.Method == "POST" {
@@ -280,17 +257,6 @@ func fetchByName(c *gin.Context, fetch_name string) (interface{}, error) {
 
 		json_err = json.NewDecoder(fetch_http_resp.Body).Decode(&fetch_html_object)
 	}
-
-	/*
-		switch v := v.(type) {
-		case []interface{}:
-			// it's an array
-		case map[string]interface{}:
-			// it's an object
-		default:
-			// it's something else
-		}
-	*/
 
 	if json_err != nil {
 		return nil, fmt.Errorf("can't fetch (%s) json unmarshall error = %v ", fetch_name, json_err)
@@ -410,101 +376,6 @@ func loadRouterYaml() {
 	}
 }
 
-/*
-type customRenderer struct {
-	Markdown_name string
-	Template      *template.Template
-}
-*/
-//func (c *customRenderer) renderImage(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-//}
-
-//func newCustomRenderer() renderer.NodeRenderer {
-//	return &customRenderer{}
-//}
-
-/*
-
-func (c *customRenderer) RegisterFuncs(r renderer.NodeRendererFuncRegisterer) {
-	//	fmt.Printf("REG v(%v)=%v\n", c.Markdown_name, yaml_router.Markdown)
-	tags_in_template := yaml_router.Markdown[c.Markdown_name].TagsInTemplate
-	for _, v := range tags_in_template {
-		//		fmt.Printf("switch v=%v\n", v)
-		switch v {
-		case "link":
-			r.Register(goldmark_ast.KindLink, c.renderLink)
-		case "image":
-			r.Register(goldmark_ast.KindImage, c.renderImage)
-		case "heading":
-			r.Register(goldmark_ast.KindHeading, c.renderHeading)
-		case "table":
-			r.Register(goldmark_ast_ext.KindTable, c.renderTable)
-		case "tableHeader":
-			r.Register(goldmark_ast_ext.KindTableHeader, c.renderTableHeader)
-		case "tableRow":
-			r.Register(goldmark_ast_ext.KindTableRow, c.renderTableRow)
-		case "tableCell":
-			r.Register(goldmark_ast_ext.KindTableCell, c.renderTableCell)
-		}
-	}
-}
-*/
-
-/*
-func (c *customRenderer) renderSomething(w util.BufWriter, source []byte, node goldmark_ast.Node, entering bool, templateName string) (goldmark_ast.WalkStatus, error) {
-	//		n := node.(*goldmark_ast.Link)
-	//	envs["title"] = string(reflect.Indirect(node).FieldByName("Title").Bytes())
-	envs := make(map[string]interface{})
-	envs["node"] = node
-	envs["source"] = source
-	envs["entering"] = entering
-	envs["attrs"] = template.HTMLAttr(markdown_print_attrs(node))
-
-	err := c.Template.ExecuteTemplate(w, templateName, envs)
-	if err != nil {
-		panic(err)
-	}
-
-	return goldmark_ast.WalkContinue, nil
-}
-
-func (c *customRenderer) renderLink(w util.BufWriter, source []byte, node goldmark_ast.Node, entering bool) (goldmark_ast.WalkStatus, error) {
-	return c.renderSomething(w, source, node, entering, "link")
-}
-func (c *customRenderer) renderImage(w util.BufWriter, source []byte, node goldmark_ast.Node, entering bool) (goldmark_ast.WalkStatus, error) {
-	return c.renderSomething(w, source, node, entering, "image")
-}
-func (c *customRenderer) renderHeading(w util.BufWriter, source []byte, node goldmark_ast.Node, entering bool) (goldmark_ast.WalkStatus, error) {
-	return c.renderSomething(w, source, node, entering, "heading")
-}
-func (c *customRenderer) renderTable(w util.BufWriter, source []byte, node goldmark_ast.Node, entering bool) (goldmark_ast.WalkStatus, error) {
-	return c.renderSomething(w, source, node, entering, "table")
-}
-func (c *customRenderer) renderTableHeader(w util.BufWriter, source []byte, node goldmark_ast.Node, entering bool) (goldmark_ast.WalkStatus, error) {
-	return c.renderSomething(w, source, node, entering, "tableHeader")
-}
-func (c *customRenderer) renderTableRow(w util.BufWriter, source []byte, node goldmark_ast.Node, entering bool) (goldmark_ast.WalkStatus, error) {
-	return c.renderSomething(w, source, node, entering, "tableRow")
-}
-func (c *customRenderer) renderTableCell(w util.BufWriter, source []byte, node goldmark_ast.Node, entering bool) (goldmark_ast.WalkStatus, error) {
-	return c.renderSomething(w, source, node, entering, "tableCell")
-}
-
-func markdown_print_attrs(node goldmark_ast.Node) string {
-	var w bytes.Buffer
-	for _, attr := range node.Attributes() {
-		_, _ = w.WriteString(" ")
-		_, _ = w.Write(attr.Name)
-		_, _ = w.WriteString(`="`)
-		// TODO: convert numeric values to strings
-		_, _ = w.Write(util.EscapeHTML(attr.Value.([]byte)))
-		_ = w.WriteByte('"')
-	}
-
-	return w.String()
-}
-*/
-
 var markdown_glob goldmark.Markdown
 
 func initMarkdown() {
@@ -532,88 +403,6 @@ func initMarkdown() {
 			),
 		),
 	)
-
-	//	goldmark.WithParser()
-	/*
-		if _, ok := yaml_router.Markdown["default"]; !ok {
-			yaml_router.Markdown["default"] =
-				MarkdownRow{
-					Template: "",
-					//Markdown: goldmark.New(defaultGoldmarkOptions...),
-				}
-		}
-
-		parser_options := goldmark.WithParserOptions(
-			parser.WithAutoHeadingID(),
-			parser.WithAttribute(),
-		)
-
-		parser_extensions := goldmark.WithExtensions(
-			extension.Table,
-			extension.Strikethrough,
-			extension.Footnote,
-			extension.Typographer,
-			extension.Linkify,
-			extension.DefinitionList,
-			emoji.Emoji,
-		)
-
-		for md_name, md_v := range yaml_router.Markdown {
-			md_old := md_v
-
-			//		fmt.Printf("AZ=%v\n", md_v.TagsInTemplate)
-			var renderer_opt goldmark.Option
-
-			if md_v.Template == "" {
-				renderer_opt = nil
-			} else {
-				tpl, err := template.New("").Funcs(template_func_map).ParseFiles("./templates/markdown/" + md_v.Template)
-				if err != nil {
-					panic(err)
-				}
-
-				parser_options = goldmark.WithParserOptions(
-					parser.WithAutoHeadingID(),
-					parser.WithAttribute(),
-
-				)
-
-				renderer_opt = goldmark.WithRendererOptions(
-					renderer.WithNodeRenderers(
-						util.Prioritized(
-							&customRenderer{
-								Markdown_name: md_name,
-								Template:      tpl,
-							},
-							499),
-						//					util.Prioritized(extension.NewTableHTMLRenderer(), 499),
-					),
-					//	goldmark_html.WithXHTML(),
-					//goldmark_html.WithUnsafe(),
-				)
-			}
-
-			//		extension.NewTableHTMLRenderer()
-
-			defaultGoldmarkOptions := []goldmark.Option{
-				parser_options,
-				parser_extensions,
-			}
-
-			if renderer_opt != nil {
-				defaultGoldmarkOptions = append([]goldmark.Option{renderer_opt}, defaultGoldmarkOptions...)
-			}
-
-			//		fmt.Printf("render opt for %v is v=%v\n", md_name, renderer_opt)
-			md_old.Markdown = goldmark.New(defaultGoldmarkOptions...)
-
-			yaml_router.Markdown[md_name] = md_old
-
-		}
-
-		//		markdown.Renderer().AddOptions(a)
-
-	*/
 
 }
 
