@@ -5,6 +5,13 @@ routers:
         - test_fetch
       env:
         env_for_tpl: Main
+    "/jwt_authorized":
+      template: template_name.html
+      auth_required: True
+      fetch:
+        - test_fetch
+      env:
+        env_for_tpl: Main With Auth
     "/todo/:id":
       template: view_todo.html
       fetch:
@@ -28,7 +35,7 @@ fetches:
       - test_header_for_fetch
 
   view_todo_fetch:
-    url: https://{{.env.base.url_for_fetch}}/todos/{{.params.id}}
+    url: https://{{.env.base.url_for_fetch}}/todos/{{.server.get.id}}
     method: GET
     important: True
 
@@ -42,3 +49,7 @@ env:
 
 static:
   "/static": ./static
+
+jwt:
+  method: hmac
+  secret: amF2YWludXNlLXNlY3JldC1rZXk=

@@ -9,6 +9,7 @@ your SHOULD save information about me.
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 
@@ -34,6 +36,7 @@ import (
 	goldmark_html "github.com/yuin/goldmark/renderer/html"
 	"gopkg.in/yaml.v2"
 
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/microcosm-cc/bluemonday"
 )
 
@@ -72,14 +75,16 @@ type FetchesRow struct {
 
 type yamlRouterStruct struct {
 	Routers map[string]struct {
-		Template string                 `yaml:"template"`
-		Fetch    []string               `yaml:"fetch"`
-		Env      map[string]interface{} //looks as .local in template
+		AuthRequired bool                   `yaml:"auth_required"`
+		Template     string                 `yaml:"template"`
+		Fetch        []string               `yaml:"fetch"`
+		Env          map[string]interface{} //looks as .local in template
 	} `yaml:"routers"`
 	Fetches      map[string]FetchesRow        `yaml:"fetches"`
 	FetchHeaders map[string]map[string]string `yaml:"fetch_headers"`
 	Env          map[interface{}]interface{}  `yaml:"env"`
 	StaticPaths  map[string]string            `yaml:"static"`
+	JWT          JWTParameters                `yaml:"jwt"`
 }
 
 func fetchTemplateForString(val string) *template.Template {
@@ -135,13 +140,13 @@ var fetch_cache_mutex = sync.RWMutex{}
 
 func executeTemplateForFetch(
 	tpl *template.Template,
-	params map[string]string,
+	server_var map[string]interface{},
 	env map[interface{}]interface{},
 ) (bytes.Buffer, error) {
 	request_writer := bytes.Buffer{}
 
 	env_for_execute_in_template := make(map[string]interface{})
-	env_for_execute_in_template["params"] = params
+	env_for_execute_in_template["server"] = server_var
 	env_for_execute_in_template["env"] = env
 
 	err := tpl.Execute(&request_writer, env_for_execute_in_template)
@@ -153,7 +158,29 @@ func executeTemplateForFetch(
 
 }
 
-func fetchByName(c *gin.Context, fetch_name string) (interface{}, error) {
+func gin_context_to_server_var(c *gin.Context) map[string]interface{} {
+	get_params_str_map := make(map[string]string)
+
+	for _, pv := range c.Params {
+		get_params_str_map[pv.Key] = pv.Value
+	}
+
+	server_str_map := make(map[string]interface{})
+	server_str_map["get"] = get_params_str_map
+
+	headers_params_str_map := make(map[string]string)
+
+	for pk, pv := range c.Request.Header {
+		if len(pv) > 0 {
+			headers_params_str_map[pk] = pv[0]
+		}
+	}
+
+	server_str_map["header"] = get_params_str_map
+	return server_str_map
+}
+
+func fetchByName(c *gin.Context, fetch_name string, server_params map[string]interface{}) (interface{}, error) {
 	fetch_obj, ok := yaml_router.Fetches[fetch_name]
 	if !ok {
 		return nil, errors.New("fetch not found : " + fetch_name)
@@ -164,15 +191,9 @@ func fetchByName(c *gin.Context, fetch_name string) (interface{}, error) {
 	var fetch_http_resp *http.Response
 	var err error = nil
 
-	params := make(map[string]string)
-
-	for _, v := range c.Params {
-		params[v.Key] = v.Value
-	}
-
 	executed_url_writer := bytes.Buffer{}
 
-	if executed_url_writer, err = executeTemplateForFetch(fetch_obj.URLTemplate, params, yaml_router.Env); err != nil {
+	if executed_url_writer, err = executeTemplateForFetch(fetch_obj.URLTemplate, server_params, yaml_router.Env); err != nil {
 		return nil, err
 	}
 
@@ -183,7 +204,7 @@ func fetchByName(c *gin.Context, fetch_name string) (interface{}, error) {
 	executed_headers_writer := bytes.Buffer{}
 
 	if fetch_obj.FetchHeadersTemplate != nil {
-		if executed_headers_writer, err = executeTemplateForFetch(fetch_obj.FetchHeadersTemplate, params, yaml_router.Env); err != nil {
+		if executed_headers_writer, err = executeTemplateForFetch(fetch_obj.FetchHeadersTemplate, server_params, yaml_router.Env); err != nil {
 			return nil, err
 		}
 	}
@@ -201,7 +222,7 @@ func fetchByName(c *gin.Context, fetch_name string) (interface{}, error) {
 
 		if fetch_obj.Method == "POST" {
 			executed_request_writer := bytes.Buffer{}
-			if executed_request_writer, err = executeTemplateForFetch(fetch_obj.RequestTemplate, params, yaml_router.Env); err != nil {
+			if executed_request_writer, err = executeTemplateForFetch(fetch_obj.RequestTemplate, server_params, yaml_router.Env); err != nil {
 				return nil, err
 			}
 
@@ -274,6 +295,26 @@ func fetchByName(c *gin.Context, fetch_name string) (interface{}, error) {
 
 }
 
+func gin_context_to_auth_var(c *gin.Context) (map[string]interface{}, error) {
+	ret := make(map[string]interface{})
+	auth := c.Request.Header.Get("Authorization")
+	if auth == "" {
+		return nil, fmt.Errorf("no Authorization header provided")
+	}
+
+	token := strings.TrimPrefix(auth, "Bearer ")
+	if token == auth {
+		return nil, fmt.Errorf("could not find bearer token in Authorization header")
+	}
+
+	jwt_int, jwt_err := yaml_router.JWT.jwt_check(token)
+	if jwt_err != nil {
+		return nil, jwt_err
+	}
+	ret["jwt"] = jwt_int
+	return ret, nil
+}
+
 func pageFunction(c *gin.Context, router_name string) error {
 
 	fetches := make(map[string]interface{})
@@ -291,6 +332,17 @@ func pageFunction(c *gin.Context, router_name string) error {
 		should_fetch[fetch_name] = fetch_name
 	}
 
+	server_str_map := gin_context_to_server_var(c)
+
+	if router_row.AuthRequired {
+		auth_obj, auth_err := gin_context_to_auth_var(c)
+		if auth_err != nil {
+			c.AbortWithError(401, auth_err)
+			return nil
+		}
+		server_str_map["auth"] = auth_obj
+	}
+
 	var wg sync.WaitGroup
 	for _, fetch_name := range should_fetch {
 		wg.Add(1)
@@ -305,7 +357,7 @@ func pageFunction(c *gin.Context, router_name string) error {
 					}
 				}()
 
-				fetch_result, err := fetchByName(c, fetch_name_param)
+				fetch_result, err := fetchByName(c, fetch_name_param, server_str_map)
 				if err != nil {
 					show500error = err
 				} else {
@@ -321,21 +373,14 @@ func pageFunction(c *gin.Context, router_name string) error {
 	wg.Wait()
 
 	if show500error != nil {
-		c.AbortWithError(http.StatusInternalServerError, show500error)
 		return show500error
-	}
-
-	params_str_map := make(map[string]string)
-
-	for _, pv := range c.Params {
-		params_str_map[pv.Key] = pv.Value
 	}
 
 	c.HTML(http.StatusOK, router_row.Template, gin.H{
 		"fe":     fetches,
 		"local":  router_row.Env,
 		"env":    yaml_router.Env,
-		"params": params_str_map,
+		"server": server_str_map,
 	})
 	return nil
 }
@@ -374,6 +419,16 @@ func loadRouterYaml() {
 			fetch_always = append(fetch_always, fetch_i)
 		}
 	}
+
+	if (yaml_router.JWT != JWTParameters{}) {
+		if err := yaml_router.JWT.parse(); err != nil {
+			panic(err)
+		}
+	} else {
+		yaml_router.JWT.exists = false
+		fmt.Println("jwt not set")
+	}
+
 }
 
 var markdown_glob goldmark.Markdown
@@ -428,7 +483,10 @@ func initRouter() {
 
 				}
 			}()
-			pageFunction(c, router_name)
+			err := pageFunction(c, router_name)
+			if err != nil {
+				c.AbortWithError(500, err)
+			}
 		})
 	}
 
@@ -582,21 +640,30 @@ func (ths *TemplateImage) Save(dest string, quality int) error {
 	}
 	defer f.Close()
 	//Lossless: true,
-	webp_opts := webp.Options{Quality: float32(quality)}
 
-	if err := webp.Encode(f, ths.img, &webp_opts); err != nil {
-		return fmt.Errorf("image save error: %s", err)
-	}
-	return nil
+	ext := filepath.Ext(dest)
+	switch ext {
+	case "webp":
+		{
+			webp_opts := webp.Options{Quality: float32(quality)}
 
-	/*
-		err := imaging.Save(ths.img, dest, imaging.JPEGQuality(quality))
-		if err != nil {
-			return fmt.Errorf("image save error: %s", err)
-		} else {
+			if err := webp.Encode(f, ths.img, &webp_opts); err != nil {
+				return fmt.Errorf("image save error: %s", err)
+			}
 			return nil
 		}
-	*/
+	default:
+		{
+			err := imaging.Save(ths.img, dest, imaging.JPEGQuality(quality))
+			if err != nil {
+				return fmt.Errorf("image save error: %s", err)
+			} else {
+				return nil
+			}
+
+		}
+	}
+
 }
 
 func func_image(source string) *TemplateImage {
@@ -619,4 +686,87 @@ func func_image_fit(source string, dest string, width int, height int, quality i
 	}
 	init_e = img.Fit(width, height).Save(dest, quality)
 	return init_e
+}
+
+type JWTParameters struct {
+	Method string `yaml:"method"`
+	//	method jwt.SigningMethod
+	Secret string `yaml:"secret"`
+	secret interface{}
+	exists bool
+}
+
+func (p *JWTParameters) getSecret() interface{} {
+	return p.secret
+}
+
+func DecodeB64(message string) []byte {
+	base64Text := make([]byte, base64.StdEncoding.DecodedLen(len(message)))
+	n, err := base64.StdEncoding.Decode(base64Text, []byte(message))
+	if n == 0 || err != nil {
+		return []byte{}
+	}
+	base64Text = base64Text[:n]
+	return base64Text
+}
+
+func (p *JWTParameters) parse() error {
+	b64data := DecodeB64(p.Secret)
+	fmt.Println(b64data)
+	fmt.Println(string(b64data))
+	if len(b64data) == 0 {
+		return fmt.Errorf("can't decode jwt secret base64 data")
+	}
+	p.secret = b64data
+	p.exists = true
+	return nil
+}
+
+func (jwt_params *JWTParameters) jwt_check(tokenString string) (interface{}, error) {
+
+	if !jwt_params.exists {
+		return nil, fmt.Errorf("JWT parameters not set")
+	}
+
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+
+		var ok bool
+		switch jwt_params.Method {
+
+		case "hmac":
+			_, ok = token.Method.(*jwt.SigningMethodHMAC)
+		case "rsa":
+			_, ok = token.Method.(*jwt.SigningMethodRSA)
+		case "ed25519":
+			_, ok = token.Method.(*jwt.SigningMethodEd25519)
+		case "ecdsa":
+			_, ok = token.Method.(*jwt.SigningMethodECDSA)
+		case "rsapps":
+			_, ok = token.Method.(*jwt.SigningMethodRSAPSS)
+		default:
+			ok = false
+		}
+
+		if !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+
+		return jwt_params.getSecret(), nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if token.Valid {
+		ret := make(map[string]interface{})
+		ret["token"] = token
+		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			ret["claims"] = claims
+		}
+		return ret, nil
+	} else {
+		return nil, fmt.Errorf("token not valid")
+	}
+
 }
