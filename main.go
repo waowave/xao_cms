@@ -100,9 +100,11 @@ func (p *yamlRoutersRow) init() {
 	p.headersTemplate = fetchTemplateForString(header_txt.String())
 }
 
+/*
 func (p *yamlRoutersRow) getHeadersTemplates() *template.Template {
 	return p.headersTemplate
 }
+*/
 
 type yamlRouterStruct struct {
 	Routers      map[string]yamlRoutersRow    `yaml:"routers"`
