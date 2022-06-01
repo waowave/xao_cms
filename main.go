@@ -711,9 +711,10 @@ func (ths *TemplateImage) Save(dest string, quality int) error {
 	defer f.Close()
 	//Lossless: true,
 
-	ext := filepath.Ext(dest)
+	ext := strings.ToLower(filepath.Ext(dest))
+
 	switch ext {
-	case "webp":
+	case ".webp":
 		{
 			webp_opts := webp.Options{Quality: float32(quality)}
 
