@@ -76,13 +76,36 @@ type FetchesRow struct {
 	FetchHeadersTemplate *template.Template
 }
 
+type yamlRoutersRow struct {
+	AuthRequired    bool                   `yaml:"auth_required"`
+	Template        string                 `yaml:"template"`
+	Fetch           []string               `yaml:"fetch"`
+	Env             map[string]interface{} //looks as .local in template
+	Headers         map[string]string      `yaml:"headers"`
+	headersTemplate *template.Template
+}
+
+func (p *yamlRoutersRow) init() {
+	if len(p.Headers) == 0 {
+		p.headersTemplate = nil
+		return
+	}
+	var header_txt bytes.Buffer
+	for header_k, header_v := range p.Headers {
+		header_txt.WriteString(header_k)
+		header_txt.WriteString(": ")
+		header_txt.WriteString(header_v)
+		header_txt.WriteString("\n")
+	}
+	p.headersTemplate = fetchTemplateForString(header_txt.String())
+}
+
+func (p *yamlRoutersRow) getHeadersTemplates() *template.Template {
+	return p.headersTemplate
+}
+
 type yamlRouterStruct struct {
-	Routers map[string]struct {
-		AuthRequired bool                   `yaml:"auth_required"`
-		Template     string                 `yaml:"template"`
-		Fetch        []string               `yaml:"fetch"`
-		Env          map[string]interface{} //looks as .local in template
-	} `yaml:"routers"`
+	Routers      map[string]yamlRoutersRow    `yaml:"routers"`
 	Fetches      map[string]FetchesRow        `yaml:"fetches"`
 	FetchHeaders map[string]map[string]string `yaml:"fetch_headers"`
 	Env          map[interface{}]interface{}  `yaml:"env"`
@@ -211,14 +234,6 @@ func fetchByName(c *gin.Context, fetch_name string, server_params map[string]int
 	http_client := &http.Client{
 		//Timeout: default_timeout_ms * time.Millisecond,
 	}
-	//headers
-	executed_headers_writer := bytes.Buffer{}
-
-	if fetch_obj.FetchHeadersTemplate != nil {
-		if executed_headers_writer, err = executeTemplateForFetch(fetch_obj.FetchHeadersTemplate, server_params, yaml_router.Env); err != nil {
-			return nil, err
-		}
-	}
 
 	if fetch_obj.Method == "POST" || fetch_obj.Method == "GET" || fetch_obj.Method == "" {
 		if dump_rest {
@@ -252,15 +267,17 @@ func fetchByName(c *gin.Context, fetch_name string, server_params map[string]int
 			panic(err)
 		}
 
-		for _, header_line := range strings.Split(executed_headers_writer.String(), "\n") {
-			if len(header_line) > 0 {
-				header_line_splitted := strings.Split(header_line, ": ")
-				header_key := header_line_splitted[0]
-				if len(header_line) > 2 {
-					header_value := header_line[len(header_key)+2:]
-					http_req.Header.Set(header_key, header_value)
-				}
+		//headers
+		executed_headers_writer := bytes.Buffer{}
+
+		if fetch_obj.FetchHeadersTemplate != nil {
+			if executed_headers_writer, err = executeTemplateForFetch(fetch_obj.FetchHeadersTemplate, server_params, yaml_router.Env); err != nil {
+				return nil, err
 			}
+		}
+
+		for header_key, header_value := range raw_headers_to_kv_map(executed_headers_writer.String()) {
+			http_req.Header.Set(header_key, header_value)
 		}
 
 		timeout_ctx, cancel := context.WithTimeout(context.Background(), default_timeout_ms*time.Millisecond)
@@ -330,6 +347,21 @@ func gin_context_to_auth_var(c *gin.Context) (map[string]interface{}, error) {
 	return ret, nil
 }
 
+func raw_headers_to_kv_map(executed_headers_writer string) map[string]string {
+	ret := make(map[string]string)
+	for _, header_line := range strings.Split(executed_headers_writer, "\n") {
+		if len(header_line) > 0 {
+			header_line_splitted := strings.Split(header_line, ": ")
+			header_key := header_line_splitted[0]
+			if len(header_line) > 2 {
+				header_value := header_line[len(header_key)+2:]
+				ret[header_key] = header_value
+			}
+		}
+	}
+	return ret
+}
+
 func pageFunction(c *gin.Context, router_name string) error {
 
 	fetches := make(map[string]interface{})
@@ -391,6 +423,19 @@ func pageFunction(c *gin.Context, router_name string) error {
 		return show500error
 	}
 
+	executed_headers_writer := bytes.Buffer{}
+	var err error
+	//gettings headers
+	if router_row.headersTemplate != nil {
+
+		if executed_headers_writer, err = executeTemplateForFetch(router_row.headersTemplate, server_str_map, yaml_router.Env); err != nil {
+			return err
+		}
+		for header_key, header_value := range raw_headers_to_kv_map(executed_headers_writer.String()) {
+			c.Header(header_key, header_value)
+		}
+	}
+
 	c.HTML(http.StatusOK, router_row.Template, gin.H{
 		"fe":     fetches,
 		"local":  router_row.Env,
@@ -406,6 +451,12 @@ func loadRouterYaml() {
 
 	if err := readYaml("conf/router.yml", &yaml_router); err != nil {
 		panic(err)
+	}
+
+	for router_i := range yaml_router.Routers {
+		old_router := yaml_router.Routers[router_i]
+		old_router.init()
+		yaml_router.Routers[router_i] = old_router
 	}
 
 	for fetch_i := range yaml_router.Fetches {
@@ -483,12 +534,14 @@ func initRouter() {
 	router.LoadHTMLGlob("templates/www/*")
 
 	for router_name := range yaml_router.Routers {
+
 		router.GET(router_name, func(c *gin.Context) {
 			defer func() {
 				if r := recover(); r != nil {
 					panic_txt := fmt.Sprintln(r)
 
 					fmt.Println("Recovered: panic = ", panic_txt)
+					fmt.Println("stacktrace from panic: \n" + string(debug.Stack()))
 
 					c.JSON(404, struct {
 						Error string
@@ -727,8 +780,6 @@ func DecodeB64(message string) []byte {
 
 func (p *JWTParameters) parse() error {
 	b64data := DecodeB64(p.Secret)
-	fmt.Println(b64data)
-	fmt.Println(string(b64data))
 	if len(b64data) == 0 {
 		return fmt.Errorf("can't decode jwt secret base64 data")
 	}

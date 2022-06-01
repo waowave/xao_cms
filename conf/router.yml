@@ -5,6 +5,8 @@ routers:
         - test_fetch
       env:
         env_for_tpl: Main
+      headers:
+        "X-Test-Header": "HELLO WORLD tpl"
     "/jwt_authorized":
       template: template_name.html
       auth_required: True
