@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"sync"
 
@@ -68,6 +69,7 @@ type FetchesRow struct {
 	FetchAlways          bool     `yaml:"fetch_always"`
 	Request              string   `yaml:"request"`
 	Headers              []string `yaml:"headers"`
+	Timeout              uint     `yaml:"timeout"`
 	RequestTemplate      *template.Template
 	URLTemplate          *template.Template
 	FetchHeadersTemplate *template.Template
@@ -199,7 +201,15 @@ func fetchByName(c *gin.Context, fetch_name string, server_params map[string]int
 
 	get_url_str := executed_url_writer.String()
 
-	http_client := &http.Client{}
+	var default_timeout_ms time.Duration = 1000
+
+	if fetch_obj.Timeout > 0 {
+		default_timeout_ms = time.Duration(fetch_obj.Timeout)
+	}
+
+	http_client := &http.Client{
+		Timeout: default_timeout_ms * time.Millisecond,
+	}
 	//headers
 	executed_headers_writer := bytes.Buffer{}
 
