@@ -9,6 +9,7 @@ your SHOULD save information about me.
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -208,7 +209,7 @@ func fetchByName(c *gin.Context, fetch_name string, server_params map[string]int
 	}
 
 	http_client := &http.Client{
-		Timeout: default_timeout_ms * time.Millisecond,
+		//Timeout: default_timeout_ms * time.Millisecond,
 	}
 	//headers
 	executed_headers_writer := bytes.Buffer{}
@@ -261,6 +262,10 @@ func fetchByName(c *gin.Context, fetch_name string, server_params map[string]int
 				}
 			}
 		}
+
+		timeout_ctx, cancel := context.WithTimeout(context.Background(), default_timeout_ms*time.Millisecond)
+		defer cancel()
+		http_req = http_req.WithContext(timeout_ctx)
 
 		fetch_http_resp, err = http_client.Do(http_req)
 	}
