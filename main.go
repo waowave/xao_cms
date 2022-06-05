@@ -290,7 +290,7 @@ func fetchByName(c *gin.Context, fetch_name string, server_params map[string]int
 	}
 
 	if err != nil && fetch_obj.Important {
-		return nil, errors.New("can't fetch important " + fetch_name)
+		return nil, fmt.Errorf("can't fetch important fetch %s with error %v", fetch_name, err)
 	}
 
 	if dump_rest {
@@ -544,12 +544,13 @@ func initRouter() {
 
 					fmt.Println("Recovered: panic = ", panic_txt)
 					fmt.Println("stacktrace from panic: \n" + string(debug.Stack()))
-
-					c.JSON(404, struct {
+					/* broken pipe?
+					c.JSON(500, struct {
 						Error string
 					}{
 						panic_txt,
 					})
+					*/
 
 				}
 			}()
