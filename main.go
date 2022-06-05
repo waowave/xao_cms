@@ -439,12 +439,27 @@ func pageFunction(c *gin.Context, router_name string) error {
 		}
 	}
 
-	c.HTML(http.StatusOK, router_row.Template, gin.H{
+	tpl_vars := gin.H{
 		"fe":     fetches,
 		"local":  router_row.Env,
 		"env":    yaml_router.Env,
 		"server": server_str_map,
-	})
+	}
+
+	var error_iface interface{}
+	func(vars_for_template gin.H) {
+		defer func() {
+			if r := recover(); r != nil {
+				error_iface = r
+			}
+		}()
+		c.HTML(http.StatusOK, router_row.Template, vars_for_template)
+	}(tpl_vars)
+
+	if error_iface != nil {
+		return fmt.Errorf("recovered panic for c.HTML return %v", error_iface)
+	}
+
 	return nil
 }
 
