@@ -227,7 +227,7 @@ func fetchByName(c *gin.Context, fetch_name string, server_params map[string]int
 
 	get_url_str := executed_url_writer.String()
 
-	var default_timeout_ms time.Duration = 1000
+	var default_timeout_ms time.Duration = 5000
 
 	if fetch_obj.Timeout > 0 {
 		default_timeout_ms = time.Duration(fetch_obj.Timeout)
@@ -422,6 +422,7 @@ func pageFunction(c *gin.Context, router_name string) error {
 	wg.Wait()
 
 	if show500error != nil {
+		c.AbortWithError(500, show500error)
 		return show500error
 	}
 
@@ -556,7 +557,8 @@ func initRouter() {
 			}()
 			err := pageFunction(c, router_name)
 			if err != nil {
-				c.AbortWithError(500, err)
+				fmt.Printf("pageFunction for %s return %v\n", router_name, err)
+				//				c.AbortWithError(500, err)
 			}
 		})
 	}
