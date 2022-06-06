@@ -395,8 +395,7 @@ func pageFunction(c *gin.Context, router_name string) error {
 	var wg sync.WaitGroup
 	for _, fetch_name := range should_fetch {
 		wg.Add(1)
-		fetch_name_param := fetch_name
-		go func() {
+		go func(fetch_name_param string, mtx *sync.RWMutex, fetches_catch map[string]interface{}) {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
@@ -410,13 +409,13 @@ func pageFunction(c *gin.Context, router_name string) error {
 				if err != nil {
 					show500error = err
 				} else {
-					fetchesMutex.Lock()
-					fetches[fetch_name_param] = fetch_result
-					fetchesMutex.Unlock()
+					mtx.Lock()
+					fetches_catch[fetch_name_param] = fetch_result
+					mtx.Unlock()
 				}
 			}()
 			wg.Done()
-		}()
+		}(fetch_name, &fetchesMutex, fetches)
 	}
 
 	wg.Wait()
@@ -552,30 +551,31 @@ func initRouter() {
 	router.LoadHTMLGlob("templates/www/*")
 
 	for router_name := range yaml_router.Routers {
+		func(router_name_catched string) {
+			router.GET(router_name_catched, func(c *gin.Context) {
+				defer func() {
+					if r := recover(); r != nil {
+						panic_txt := fmt.Sprintln(r)
 
-		router.GET(router_name, func(c *gin.Context) {
-			defer func() {
-				if r := recover(); r != nil {
-					panic_txt := fmt.Sprintln(r)
+						fmt.Println("Recovered: panic = ", panic_txt)
+						fmt.Println("stacktrace from panic: \n" + string(debug.Stack()))
+						/* broken pipe?
+						c.JSON(500, struct {
+							Error string
+						}{
+							panic_txt,
+						})
+						*/
 
-					fmt.Println("Recovered: panic = ", panic_txt)
-					fmt.Println("stacktrace from panic: \n" + string(debug.Stack()))
-					/* broken pipe?
-					c.JSON(500, struct {
-						Error string
-					}{
-						panic_txt,
-					})
-					*/
-
+					}
+				}()
+				err := pageFunction(c, router_name_catched)
+				if err != nil {
+					fmt.Printf("pageFunction for %s return %v\n", router_name_catched, err)
+					//				c.AbortWithError(500, err)
 				}
-			}()
-			err := pageFunction(c, router_name)
-			if err != nil {
-				fmt.Printf("pageFunction for %s return %v\n", router_name, err)
-				//				c.AbortWithError(500, err)
-			}
-		})
+			})
+		}(router_name)
 	}
 
 	for static_key, static_value := range yaml_router.StaticPaths {
