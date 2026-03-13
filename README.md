@@ -1,4 +1,4 @@
-# xao_cms
+# simple configurable cms. beta. for internal use
 very flexible golang cms, that just fetch remote data and draw html using golang templates.  
 
 good if you using some rest cms ( like directus, strapi, hasura ) and need just flexible renderer  
